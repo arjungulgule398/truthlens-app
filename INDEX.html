@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TruthLens - Misinformation Triage Platform</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen p-6 font-sans">
+  <div class="max-w-5xl mx-auto space-y-8">
+    
+    <!-- Header -->
+    <header class="flex justify-between items-center border-b border-slate-700 pb-4">
+      <div>
+        <h1 class="text-3xl font-bold text-blue-400">TruthLens</h1>
+        <p class="text-slate-400 text-sm">Civic Tech · Misinformation Triage Platform</p>
+      </div>
+      <span class="bg-blue-900 text-blue-200 text-xs px-3 py-1 rounded-full font-semibold">No Auth Required</span>
+    </header>
+
+    <!-- Claim Submission Form -->
+    <section class="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-lg">
+      <h2 class="text-xl font-semibold mb-4 text-slate-200">Submit a Claim</h2>
+      <form id="claimForm" class="space-y-4">
+        <div>
+          <label class="block text-sm text-slate-400 mb-1">Claim Text</label>
+          <textarea id="claimText" required placeholder="Paste viral post text here..." class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-slate-100 focus:outline-none focus:border-blue-500 h-24"></textarea>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label class="block text-sm text-slate-400 mb-1">Source Platform</label>
+            <select id="platform" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-slate-100">
+              <option value="WhatsApp">WhatsApp</option>
+              <option value="X">X (Twitter)</option>
+              <option value="Instagram">Instagram</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm text-slate-400 mb-1">Category</label>
+            <select id="category" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-slate-100">
+              <option value="Politics">Politics</option>
+              <option value="Health">Health</option>
+              <option value="Finance">Finance</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm text-slate-400 mb-1">Source Link (Optional)</label>
+            <input type="text" id="sourceLink" placeholder="https://..." class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-slate-100 focus:outline-none focus:border-blue-500">
+          </div>
+        </div>
+        <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-2 rounded transition">Analyze & Submit Claim</button>
+      </form>
+    </section>
+
+    <!-- Controls & Filters -->
+    <section class="flex flex-wrap gap-4 justify-between items-center bg-slate-800 p-4 rounded-xl border border-slate-700">
+      <div class="flex gap-2 items-center">
+        <span class="text-sm text-slate-400">Filter Category:</span>
+        <select id="filterCategory" onchange="renderFeed()" class="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sm">
+          <option value="All">All Categories</option>
+          <option value="Politics">Politics</option>
+          <option value="Health">Health</option>
+          <option value="Finance">Finance</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
+      <div class="flex gap-2 items-center">
+        <span class="text-sm text-slate-400">Filter Status:</span>
+        <select id="filterStatus" onchange="renderFeed()" class="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sm">
+          <option value="All">All Statuses</option>
+          <option value="Unverified">Unverified</option>
+          <option value="Verified True">Verified True</option>
+          <option value="Verified False">Verified False</option>
+          <option value="Misleading">Misleading</option>
+        </select>
+      </div>
+    </section>
+
+    <!-- Public Feed -->
+    <section>
+      <h2 class="text-xl font-semibold mb-4 text-slate-200">Public Feed</h2>
+      <div id="feed" class="space-y-4"></div>
+    </section>
+  </div>
+
+  <!-- Detail Modal -->
+  <div id="modal" class="fixed inset-0 bg-black/75 hidden flex items-center justify-center p-4">
+    <div class="bg-slate-800 border border-slate-700 rounded-xl p-6 max-w-lg w-full space-y-4">
+      <h3 class="text-lg font-bold text-blue-400">Claim Detail View</h3>
+      <p id="modalText" class="text-slate-200 text-sm bg-slate-900 p-3 rounded border border-slate-700"></p>
+      <div id="modalMeta" class="text-xs text-slate-400 space-y-1"></div>
+      <div id="modalReviewer" class="bg-slate-900 p-3 rounded border border-slate-700 text-sm"></div>
+      <button onclick="closeModal()" class="w-full bg-slate-700 hover:bg-slate-600 text-white py-1.5 rounded">Close</button>
+    </div>
+  </div>
+
+  <script>
+    let claims = JSON.parse(localStorage.getItem('truthlens_claims')) || [];
+
+    document.getElementById('claimForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const text = document.getElementById('claimText').value;
+      const platform = document.getElementById('platform').value;
+      const category = document.getElementById('category').value;
+      const link = document.getElementById('sourceLink').value;
+
+      // Risk Flag Logic
+      const flags = [];
+      if (/breaking|shocking|share before deleted/i.test(text)) flags.push('Sensational');
+      const chars = text.replace(/[^a-zA-Z]/g, '');
+      if (chars.length > 0 && (text.replace(/[^A-Z]/g, '').length / chars.length) > 0.5) flags.push('Shouting');
+      if (!link.trim()) flags.push('Unsourced');
+
+      const claim = {
+        id: Date.now(),
+        text, platform, category, link,
+        flags,
+        riskLevel: flags.length >= 2 ? 'High Risk' : 'Normal Risk',
+        status: 'Unverified',
+        reviewerNote: '',
+        timestamp: new Date().toLocaleString()
+      };
+
+      claims.unshift(claim);
+      saveAndRender();
+      this.reset();
+    });
+
+    function updateStatus(id, newStatus) {
+      const note = prompt("Enter reviewer note:");
+      if (note === null) return;
+      claims = claims.map(c => c.id === id ? {...c, status: newStatus, reviewerNote: note} : c);
+      saveAndRender();
+    }
+
+    function openModal(id) {
+      const c = claims.find(item => item.id === id);
+      if (!c) return;
+      document.getElementById('modalText').innerText = c.text;
+      document.getElementById('modalMeta').innerHTML = `
+        <p><strong>Platform:</strong> ${c.platform} | <strong>Category:</strong> ${c.category}</p>
+        <p><strong>Submitted:</strong> ${c.timestamp}</p>
+        <p><strong>Flags:</strong> ${c.flags.join(', ') || 'None'}</p>
+      `;
+      document.getElementById('modalReviewer').innerHTML = `
+        <p class="font-semibold text-slate-300">Reviewer Note:</p>
+        <p class="text-slate-400">${c.reviewerNote || 'No review note added yet.'}</p>
+      `;
+      document.getElementById('modal').classList.remove('hidden');
+    }
+
+    function closeModal() { document.getElementById('modal').classList.add('hidden'); }
+
+    function saveAndRender() {
+      localStorage.setItem('truthlens_claims', JSON.stringify(claims));
+      renderFeed();
+    }
+
+    function renderFeed() {
+      const cat = document.getElementById('filterCategory').value;
+      const stat = document.getElementById('filterStatus').value;
+      const feed = document.getElementById('feed');
+      feed.innerHTML = '';
+
+      // Risk-Weighted Sorting
+      const sorted = [...claims].sort((a,b) => (b.riskLevel === 'High Risk') - (a.riskLevel === 'High Risk'));
+
+      const filtered = sorted.filter(c => 
+        (cat === 'All' || c.category === cat) &&
+        (stat === 'All' || c.status === stat)
+      );
+
+      if (filtered.length === 0) {
+        feed.innerHTML = '<p class="text-slate-500 text-center py-6">No claims found.</p>';
+        return;
+      }
+
+      filtered.forEach(c => {
+        const statusColors = {
+          'Unverified': 'bg-yellow-900/50 text-yellow-300 border-yellow-700',
+          'Verified True': 'bg-green-900/50 text-green-300 border-green-700',
+          'Verified False': 'bg-red-900/50 text-red-300 border-red-700',
+          'Misleading': 'bg-orange-900/50 text-orange-300 border-orange-700'
+        };
+
+        const card = document.createElement('div');
+        card.className = "bg-slate-800 border border-slate-700 rounded-xl p-5 shadow space-y-3";
+        card.innerHTML = `
+          <div class="flex flex-wrap justify-between items-center gap-2">
+            <div class="flex gap-2 items-center">
+              <span class="text-xs px-2.5 py-0.5 rounded border ${statusColors[c.status]}">${c.status}</span>
+              ${c.riskLevel === 'High Risk' ? '<span class="text-xs bg-red-600 text-white font-bold px-2 py-0.5 rounded">High Risk</span>' : ''}
+              <span class="text-xs bg-slate-700 text-slate-300 px-2 py-0.5 rounded">${c.platform}</span>
+              <span class="text-xs bg-slate-700 text-slate-300 px-2 py-0.5 rounded">${c.category}</span>
+            </div>
+            <span class="text-xs text-slate-500">${c.timestamp}</span>
+          </div>
+          <p class="text-slate-200 font-medium">${c.text}</p>
+          <div class="flex flex-wrap gap-2 text-xs text-slate-400">
+            <strong>Flags:</strong> ${c.flags.length ? c.flags.map(f => `<span class="bg-slate-900 px-2 py-0.5 rounded border border-slate-700 text-red-400">${f}</span>`).join(' ') : 'None'}
+          </div>
+          <div class="flex flex-wrap justify-between items-center pt-3 border-t border-slate-700/50 gap-2">
+            <button onclick="openModal(${c.id})" class="text-xs text-blue-400 hover:underline">View Details</button>
+            <div class="flex gap-1">
+              <button onclick="updateStatus(${c.id}, 'Verified True')" class="text-xs bg-green-700 hover:bg-green-600 px-2 py-1 rounded">True</button>
+              <button onclick="updateStatus(${c.id}, 'Verified False')" class="text-xs bg-red-700 hover:bg-red-600 px-2 py-1 rounded">False</button>
+              <button onclick="updateStatus(${c.id}, 'Misleading')" class="text-xs bg-orange-700 hover:bg-orange-600 px-2 py-1 rounded">Misleading</button>
+            </div>
+          </div>
+        `;
+        feed.appendChild(card);
+      });
+    }
+
+    renderFeed();
+  </script>
+</body>
+</html>
